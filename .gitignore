@@ -1,0 +1,19 @@
+# Môi trường ảo
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# File dữ liệu (không cần up lên GitHub)
+*.csv
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Hệ điều hành
+.DS_Store
+Thumbs.db
