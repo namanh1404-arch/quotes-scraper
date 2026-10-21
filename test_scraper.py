@@ -1,49 +1,81 @@
 import time
-import csv # thư viện ghi/đọc file csv
-import requests # thư viện gửi yêu cầu HTTP lấy HTML về
-from bs4 import BeautifulSoup # thư viện dào dữ liệu từ HTML
+import csv
+import logging
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
-url = "http://quotes.toscrape.com"
-index = 1
+base_url = "http://quotes.toscrape.com"
+output_file = "quotes.csv"
+request_delay = 1
 
-"""with open(...) as file: mở file và tự động đóng khi xong
-"quotes.csv": Tên file đầu ra (sẽ nằm cùng thư mục với code).
-mode="w": Chế độ write (ghi). Mỗi lần chạy code sẽ ghi đè file cũ. 
-Nếu muốn thêm vào file cũ, dùng mode="a" (append). 
-newline="": Bắt buộc khi ghi CSV trên Windows để tránh lỗi xuống dòng kép.
-encoding='utf-8-sig': Mã hóa ký tự. Bắt buộc để hiển thị đúng tiếng Việt và ký tự đặc biệt"""
-with open("quotes.csv", mode="w", newline="", encoding="utf-8") as file:
-    writer = csv.writer(file) # Tạo object writer để ghi từng dòng vào file.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("scraper.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger(__name__)
 
-    writer.writerow(["No.", "Author", "Quote"])
+def fetch_page(url):
+    logger.info(f"Crawling: {url}")
+    response = requests.get(url, timeout=10)
+    logger.info(f"Success: {url} (status {response.status_code})")
+    return response.text
+
+def parse_quotes(html):
+    soup = BeautifulSoup(html, "html.parser")
+    quotes = []
+
+    for quote_div in soup.find_all("div", class_="quote"):
+        author = quote_div.find("small", class_="author")
+        text = quote_div.find("span", class_="text")
+
+        quotes.append({
+            "author": author.text.strip(),
+            "text": text.text.strip(),
+        })
+
+    logger.info(f"Parsed {len(quotes)} quotes")
+    return quotes
+
+def find_next_page(html):
+    soup = BeautifulSoup(html, "html.parser")
+    next_button = soup.find("li", class_="next")
+
+    if not next_button: return None
+
+    next_link = next_button.find("a")
+    if not next_link or "href" not in next_link.attrs:
+        return None
+    
+    return urljoin(base_url, next_link["href"])
+
+def save_to_csv(quotes, filename):
+    with open(filename, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file) # Tạo object writer để ghi từng dòng vào file.
+        writer.writerow(["No.", "Author", "Quote"])
+        for index, quote in enumerate(quotes, start=1):
+            writer.writerow([index, quote["author"], quote["text"]])
+
+def main():
+    all_quotes = []
+    url = base_url
 
     while url:
-        print(f"Đang cào: {url}")
+        html = fetch_page(url)
 
-        """response: chứa phản hồi từ server:
-        - status_code: 200 = ok. 404 = not_found. 403 = blocked.
-        - text: nội dung HTML (chuỗi string)
-        - headers: thông tin về response"""
-        response = requests.get(url)
+        quotes = parse_quotes(html)
+        all_quotes.extend(quotes)
 
-        """"html.parser": trình phân tích của Python
-        BeautifulSoup(): nhận chuỗi HTML, biến thành object duyệt được"""
-        soup = BeautifulSoup(response.text, "html.parser")
+        url = find_next_page(html)
+        if url:
+            time.sleep(request_delay)
+    
+    save_to_csv(all_quotes, output_file)
 
-        """tìm các thẻ <div> có class="quote". 
-        Kết quả = 1 list object BeautifulSoup đại diện cho các quote trên trang. 
-        Dấu _ để tránh trùng với "class" - từ khóa Python"""
-        for quote in soup.find_all("div", class_="quote"):
-            author = quote.find("small", class_="author").text # .text: Lấy nội dung văn bản bên trong thẻ đó (bỏ hết HTML tags).
-            text = quote.find("span", class_="text").text
-            writer.writerow([index, author, text])
-            index += 1
 
-        # Tìm nút next
-        next_button = soup.find("li", class_="next")
-        if next_button:
-            url = "http://quotes.toscrape.com" + next_button.a["href"]
-        else:
-            url = None
-
-        time.sleep(1)
+if __name__ == "__main__":
+    main()
